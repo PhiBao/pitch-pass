@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+@theme {
+  --color-pitch-bg: #0F1316;
+  --color-pitch-surface: #161B20;
+  --color-pitch-elevated: #1B2127;
+  --color-pitch-highlight: #222A32;
+  --color-pitch-primary: #1AB943;
+  --color-pitch-primary-dark: #15A03A;
+  --color-pitch-accent: #F5A623;
+  --color-pitch-text: #F0F4F0;
+  --color-pitch-text-secondary: #8A9A8A;
+  --color-pitch-text-tertiary: #5A6A5A;
+  --color-pitch-border: rgba(255, 255, 255, 0.06);
+  --color-pitch-danger: #EA3943;
+  --color-pitch-success: #16C784;
+  --color-pitch-wc-red: #E5322D;
+  --color-pitch-wc-white: #F4F4F2;
+  --color-pitch-wc-green: #1AB943;
+  --font-sans: 'Geist', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, monospace;
+}
+
+body {
+  background-color: var(--color-pitch-bg);
+  color: var(--color-pitch-text);
+  font-feature-settings: 'tnum';
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+.hairline {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
