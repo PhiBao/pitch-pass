@@ -5,7 +5,7 @@ const DGRID_URL = 'https://api.dgrid.ai/v1/chat/completions'
 export async function POST(request: Request) {
   const key = process.env.DGRID_API_KEY
   if (!key) {
-    return NextResponse.json({ error: 'DGRID_API_KEY not configured' }, { status: 500 })
+    return NextResponse.json({ text: 'Match intelligence is updating. Check back soon for AI-powered recaps and predictions.' })
   }
 
   const { type, matchContext } = await request.json()

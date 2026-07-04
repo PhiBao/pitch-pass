@@ -61,7 +61,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 | Variable | Required | Description |
 |---|---|---|
-| `DGRID_API_KEY` | Yes | DGrid AI API key (get one at [dgrid.ai](https://dgrid.ai)) |
+| `DGRID_API_KEY` | No | DGrid AI API key for match analysis. AI features work with a demo fallback if not set. |
 
 ---
 
