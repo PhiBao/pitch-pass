@@ -3,13 +3,28 @@
 import { Toaster } from 'sonner'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
+import { useEffect, useState } from 'react'
 import { Trophy, Swords, Coins, Zap, Wallet } from 'lucide-react'
 
 function BottomNav() {
   const path = usePathname()
+  const [bracketHref, setBracketHref] = useState('/tournament/wc2026r16')
+
+  useEffect(() => {
+    fetch('/api/tournament')
+      .then((r) => r.json())
+      .then((data) => {
+        const tournaments = data.tournaments || []
+        if (tournaments.length > 0) {
+          setBracketHref(`/tournament/${tournaments[0].id}`)
+        }
+      })
+      .catch(() => {})
+  }, [])
+
   const tabs = [
     { href: '/', icon: Trophy, label: 'Home' },
-    { href: '/tournament/wc2026r16', icon: Swords, label: 'Bracket' },
+    { href: bracketHref, icon: Swords, label: 'Bracket' },
     { href: '/pot/create', icon: Coins, label: 'Pots' },
     { href: '/assistant', icon: Zap, label: 'AI' },
     { href: '/wallet', icon: Wallet, label: 'Wallet' },

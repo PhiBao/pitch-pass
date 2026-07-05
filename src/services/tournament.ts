@@ -1,27 +1,20 @@
-import type { Tournament, Team, Match, PredictionPot, PotEntry, Payout, WalletState } from '@/types/tournament'
+import type { Tournament, Team, Match, PredictionPot, PotEntry, Payout } from '@/types/tournament'
+import { getOrCreateCore, appendToCore, startReplication, getPeerCount, isReplicationActive, getServerPublicKey } from './peers'
+
+function getSodium() {
+  return require('sodium-javascript')
+}
 
 const tournaments = new Map<string, Tournament>()
 const pots = new Map<string, PredictionPot>()
-const wallets = new Map<string, WalletState>()
-let activeHypercore: { key: string; events: unknown[] } | null = null
+const coreReplicationStarted = new Set<string>()
 
 function generateKeyPair(): { publicKey: string; secretKey: string } {
-  const sodium = require('sodium-javascript')
-  const pk = Buffer.alloc(32)
-  const sk = Buffer.alloc(64)
+  const sodium = getSodium()
+  const pk = Buffer.alloc(sodium.crypto_sign_PUBLICKEYBYTES)
+  const sk = Buffer.alloc(sodium.crypto_sign_SECRETKEYBYTES)
   sodium.crypto_sign_keypair(pk, sk)
   return { publicKey: pk.toString('hex'), secretKey: sk.toString('hex') }
-}
-
-function createHypercore(): { key: string; append: (e: unknown) => void } {
-  const key = generateKeyPair().publicKey
-  activeHypercore = { key, events: [] }
-  return {
-    key,
-    append(e: unknown) {
-      activeHypercore?.events.push({ ...(e as object), timestamp: Date.now(), seq: activeHypercore.events.length })
-    },
-  }
 }
 
 export function createInviteLink(publicKey: string, tournamentId: string): string {
@@ -65,11 +58,27 @@ function generateBracket(tournamentId: string, teamSize: number): Match[] {
   return matches
 }
 
-export function createTournament(params: {
+async function persistTournament(t: Tournament) {
+  try {
+    await appendToCore(`tournament-${t.id}`, { type: 'state', tournament: t, timestamp: Date.now() })
+  } catch {}
+}
+
+async function ensureReplication(t: Tournament) {
+  if (coreReplicationStarted.has(t.id)) return
+  try {
+    const core = getOrCreateCore(`tournament-${t.id}`)
+    await core.ready()
+    const discKey = core.discoveryKey
+    await startReplication(discKey)
+    coreReplicationStarted.add(t.id)
+  } catch {}
+}
+
+export async function createTournament(params: {
   name: string; teamSize: number; entryFee: number; creatorAddress: string
-}): Tournament {
+}): Promise<Tournament> {
   const keyPair = generateKeyPair()
-  const core = createHypercore()
   const id = keyPair.publicKey.slice(0, 16)
 
   const t: Tournament = {
@@ -85,13 +94,19 @@ export function createTournament(params: {
     totalPrizePool: 0,
     createdAt: Date.now(),
     createdBy: params.creatorAddress,
-    discoveryKey: core.key,
+    discoveryKey: '',
     hypercoreLength: 0,
   }
 
-  core.append({ type: 'created', tournament: { id, name: params.name } })
-  t.hypercoreLength = activeHypercore?.events.length || 1
+  const core = getOrCreateCore(`tournament-${id}`)
+  await core.ready()
+  await core.append({ type: 'created', name: params.name, teamSize: params.teamSize, entryFee: params.entryFee, timestamp: Date.now() })
+
+  t.discoveryKey = core.discoveryKey.toString('hex')
+  t.hypercoreLength = core.length
+
   tournaments.set(id, t)
+  await ensureReplication(t)
   return t
 }
 
@@ -103,7 +118,7 @@ export function listTournaments(): Tournament[] {
   return Array.from(tournaments.values()).sort((a, b) => b.createdAt - a.createdAt)
 }
 
-export function addTeam(tournamentId: string, team: Team): Tournament {
+export async function addTeam(tournamentId: string, team: Team): Promise<Tournament> {
   const t = tournaments.get(tournamentId)
   if (!t) throw new Error('Tournament not found')
   if (t.status !== 'registration') throw new Error('Registration closed')
@@ -116,6 +131,8 @@ export function addTeam(tournamentId: string, team: Team): Tournament {
     t.status = 'active'
     seedBracket(t)
   }
+
+  await persistTournament(t)
   return t
 }
 
@@ -138,9 +155,9 @@ function seedBracket(t: Tournament): void {
   }
 }
 
-export function updateResult(
+export async function updateResult(
   tournamentId: string, matchId: string, scoreA: number, scoreB: number
-): Tournament {
+): Promise<Tournament> {
   const t = tournaments.get(tournamentId)
   if (!t) throw new Error('Tournament not found')
   const match = t.matches.find((m) => m.id === matchId)
@@ -152,6 +169,7 @@ export function updateResult(
   if (scoreA === scoreB) match.winner = match.teamA
   match.status = 'completed'
   advanceBracket(t)
+  await persistTournament(t)
   return t
 }
 
@@ -200,10 +218,11 @@ function calculatePayouts(t: Tournament): Payout[] {
   return payouts
 }
 
-export function settleTournament(tournamentId: string): { tournament: Tournament; payouts: Payout[] } {
+export async function settleTournament(tournamentId: string): Promise<{ tournament: Tournament; payouts: Payout[] }> {
   const t = tournaments.get(tournamentId)
   if (!t) throw new Error('Tournament not found')
   t.status = 'completed'
+  await persistTournament(t)
   return { tournament: t, payouts: calculatePayouts(t) }
 }
 
@@ -255,35 +274,21 @@ export function listPots(): PredictionPot[] {
 }
 
 export function generateSeed(): string {
-  const bip39 = require('bip39')
-  return bip39.generateMnemonic()
+  try {
+    const wdk = require('@tetherto/wdk')
+    return (wdk.default || wdk).getRandomSeedPhrase()
+  } catch {
+    const bip39 = require('bip39')
+    return bip39.generateMnemonic()
+  }
 }
 
-export function deriveAddress(_seed: string): string {
-  const sodium = require('sodium-javascript')
-  const pk = Buffer.alloc(32)
-  const sk = Buffer.alloc(64)
-  sodium.crypto_sign_keypair(pk, sk)
-  return '0x' + pk.toString('hex').slice(0, 40)
-}
-
-export function createWallet(): WalletState {
-  const seed = generateSeed()
-  const address = deriveAddress(seed)
-  const w: WalletState = { seed, address, balance: 100, createdAt: Date.now() }
-  wallets.set(address, w)
-  return w
-}
-
-export function importWallet(seed: string): WalletState {
-  const address = deriveAddress(seed)
-  const w: WalletState = { seed, address, balance: 100, createdAt: Date.now() }
-  wallets.set(address, w)
-  return w
-}
-
-export function getWallet(address: string): WalletState | null {
-  return wallets.get(address) || null
+export function getPeerInfo(): { active: boolean; peerCount: number; serverKey: string | null } {
+  return {
+    active: isReplicationActive(),
+    peerCount: getPeerCount(),
+    serverKey: getServerPublicKey(),
+  }
 }
 
 const WC_ID = 'wc2026r16'
@@ -296,7 +301,6 @@ export function seedWorldCup(): Tournament {
   if (tournaments.has(WC_ID)) return tournaments.get(WC_ID)!
 
   const keyPair = generateKeyPair()
-  const core = createHypercore()
 
   const teamNames = [
     'Argentina', 'France', 'England', 'Spain',
@@ -330,7 +334,8 @@ export function seedWorldCup(): Tournament {
     { id: 'final-1', round: 'final', teamA: '', teamB: '', scoreA: null, scoreB: null, winner: null, status: 'pending' },
   ]
 
-  core.append({ type: 'wc-seeded', teams: teamNames, timestamp: Date.now() })
+  const core = getOrCreateCore(`tournament-${WC_ID}`)
+  const discKey = core.key ? core.key.toString('hex').slice(0, 32) : keyPair.publicKey
 
   const t: Tournament = {
     id: WC_ID,
@@ -345,12 +350,11 @@ export function seedWorldCup(): Tournament {
     totalPrizePool: 160,
     createdAt: Date.now(),
     createdBy: 'pitchpass',
-    discoveryKey: core.key,
-    hypercoreLength: activeHypercore?.events.length || 1,
+    discoveryKey: discKey,
+    hypercoreLength: 1,
   }
 
   tournaments.set(WC_ID, t)
-
   seedWorldCupPots(t)
 
   return t
@@ -366,9 +370,4 @@ function seedWorldCupPots(t: Tournament): void {
     enterPot(pot.id, { address: '0xa3D2...', pick: 'teamB', stake: 5, settled: false, won: null })
     enterPot(pot.id, { address: '0xc9E4...', pick: 'draw', stake: 5, settled: false, won: null })
   })
-}
-
-export function getActiveHypercoreInfo(): { key: string; length: number } | null {
-  if (!activeHypercore) return null
-  return { key: activeHypercore.key, length: activeHypercore.events.length }
 }

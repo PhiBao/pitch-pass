@@ -1,6 +1,6 @@
 'use client'
 
-import { Trophy, ArrowLeft, Swords, Users, Check, Crown, Share2, Plus, Coins, Zap } from 'lucide-react'
+import { Trophy, ArrowLeft, Swords, Users, Check, Crown, Share2, Plus, Coins, Zap, Radio } from 'lucide-react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useEffect, useState, useCallback } from 'react'
@@ -18,6 +18,13 @@ function roundOrder(r: Match['round']): number {
   return { r16: 0, quarter: 1, semi: 2, final: 3 }[r]
 }
 
+function ordinal(n: number): string {
+  if (n === 1) return '1st'
+  if (n === 2) return '2nd'
+  if (n === 3) return '3rd'
+  return `${n}th`
+}
+
 export default function TournamentPage() {
   const { id } = useParams<{ id: string }>()
   const [t, setT] = useState<Tournament | null>(null)
@@ -28,11 +35,13 @@ export default function TournamentPage() {
   const [scoreB, setScoreB] = useState('')
   const [joining, setJoining] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [peerInfo, setPeerInfo] = useState<{ active: boolean; peerCount: number } | null>(null)
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/tournament?id=${id}`)
     const data = await res.json()
     setT(data.tournament || null)
+    setPeerInfo(data.peer || null)
     setLoading(false)
   }, [id])
 
@@ -96,7 +105,7 @@ export default function TournamentPage() {
       setT(data.tournament)
       const msg = (data.payouts || [])
         .slice(0, 3)
-        .map((p: Payout) => `${p.place}st: ${p.teamName} · ${p.amount} USDt`)
+        .map((p: Payout) => `${ordinal(p.place)}: ${p.teamName} · ${p.amount} USDt`)
         .join(' | ')
       toast.success('Tournament settled', { description: msg })
     } catch (err: any) {
@@ -132,7 +141,8 @@ export default function TournamentPage() {
 
   const matches = t.matches.filter((m) => m.teamA && m.teamB)
   const completedMatches = matches.filter((m) => m.status === 'completed')
-  const allDone = t.status === 'active' && matches.length > 0 && matches.every((m) => m.status === 'completed')
+  const finalMatch = t.matches.find((m) => m.round === 'final' && m.teamA && m.teamB)
+  const allDone = t.status === 'active' && matches.length > 0 && finalMatch?.status === 'completed'
 
   const rounds = ['r16', 'quarter', 'semi', 'final'] as const
   const grouped = rounds
@@ -147,7 +157,7 @@ export default function TournamentPage() {
             <ArrowLeft className="w-5 h-5 text-pitch-text" />
           </Link>
           <h1 className="text-sm font-semibold text-pitch-text truncate flex-1">{t.name}</h1>
-          <button onClick={handleShare} className="p-1.5 rounded-lg hover:bg-pitch-surface/60" title="Copy pear:// link">
+          <button onClick={handleShare} className="p-1.5 rounded-lg hover:bg-pitch-surface/60" title="Copy tournament link">
             <Share2 className="w-4 h-4 text-pitch-text-secondary" />
           </button>
         </div>
@@ -157,6 +167,13 @@ export default function TournamentPage() {
           <span className="text-[10px] font-semibold text-pitch-text-secondary uppercase tracking-wide">
             {t.status === 'registration' ? 'Registration' : t.status === 'active' ? 'Live' : 'Completed'}
           </span>
+          {peerInfo?.active && (
+            <span className="flex items-center gap-0.5 text-[10px] text-pitch-primary ml-2">
+              <Radio className="w-2.5 h-2.5" />
+              P2P
+              {peerInfo.peerCount > 0 && <span className="text-pitch-text-tertiary">· {peerInfo.peerCount} peer{peerInfo.peerCount !== 1 ? 's' : ''}</span>}
+            </span>
+          )}
           <span className="text-[10px] text-pitch-text-tertiary ml-auto">{t.totalPrizePool} USDt pool</span>
         </div>
 
@@ -176,6 +193,15 @@ export default function TournamentPage() {
       </header>
 
       <div className="px-5 pt-4">
+        {t.discoveryKey && (
+          <div className="mb-4 p-2.5 rounded-xl bg-pitch-surface/50 border hairline">
+            <p className="text-[9px] text-pitch-text-tertiary uppercase tracking-wide mb-1">P2P Discovery Key</p>
+            <p className="text-[10px] font-mono text-pitch-text-secondary break-all select-all">
+              {t.discoveryKey}
+            </p>
+          </div>
+        )}
+
         {tab === 'bracket' && (
           <div className="space-y-6">
             {grouped.map((group) => (

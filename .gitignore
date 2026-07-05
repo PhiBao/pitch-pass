@@ -22,6 +22,9 @@ npm-debug.log*
 yarn-debug.log*
 pnpm-debug.log*
 
+# p2p local storage
+.pitchpass-p2p-storage/
+
 # ide
 .idea/
 .vscode/

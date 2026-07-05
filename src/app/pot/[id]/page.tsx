@@ -37,8 +37,17 @@ export default function PotPage() {
     if (!pot) return
     setEntering(true)
     try {
+      let userAddress = '0xanonymous'
+      try {
+        const raw = localStorage.getItem('pitchpass:wallet')
+        if (raw) {
+          const parsed = JSON.parse(raw)
+          userAddress = parsed.address || userAddress
+        }
+      } catch {}
+
       const entry: PotEntry = {
-        address: '0x' + Math.random().toString(16).slice(2, 10).padStart(12, '0'),
+        address: userAddress,
         pick, stake: pot.entryFee, settled: false, won: null,
       }
       const res = await fetch('/api/pot', {

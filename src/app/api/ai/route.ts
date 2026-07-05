@@ -5,7 +5,7 @@ const DGRID_URL = 'https://api.dgrid.ai/v1/chat/completions'
 export async function POST(request: Request) {
   const key = process.env.DGRID_API_KEY
   if (!key) {
-    return NextResponse.json({ text: 'Match intelligence is updating. Check back soon for AI-powered recaps and predictions.' })
+    return NextResponse.json({ error: 'AI_NOT_CONFIGURED' }, { status: 503 })
   }
 
   const { type, matchContext } = await request.json()
@@ -34,14 +34,42 @@ export async function POST(request: Request) {
           { role: 'user', content: userPrompt },
         ],
         max_tokens: 300,
+        stream: true,
       }),
     })
 
-    const json = await res.json()
-    if (!res.ok) {
-      return NextResponse.json({ error: json.error?.message || 'AI API error' }, { status: res.status })
+    if (!res.ok || !res.body) {
+      const text = await res.text()
+      return NextResponse.json({ error: text || 'AI API error' }, { status: res.status })
     }
-    return NextResponse.json({ text: json.choices?.[0]?.message?.content || '' })
+
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    const stream = new ReadableStream({
+      async start(controller) {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) { controller.close(); break }
+          const chunk = decoder.decode(value, { stream: true })
+          const lines = chunk.split('\n').filter((l) => l.startsWith('data: '))
+          for (const line of lines) {
+            const data = line.slice(6)
+            if (data === '[DONE]') continue
+            try {
+              const parsed = JSON.parse(data)
+              const content = parsed.choices?.[0]?.delta?.content || ''
+              if (content) {
+                controller.enqueue(new TextEncoder().encode(content))
+              }
+            } catch {}
+          }
+        }
+      },
+    })
+
+    return new Response(stream, {
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    })
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }

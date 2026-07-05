@@ -100,7 +100,7 @@ export default function HomePage() {
                   <p className="text-[10px] text-pitch-text-secondary mt-0.5">Teams</p>
                 </div>
                 <div>
-                  <p className="text-base font-bold text-pitch-primary tnum">{wc.teams.length - wc.matches.filter((m) => m.status === 'completed').length * 2 + 2}</p>
+                  <p className="text-base font-bold text-pitch-primary tnum">{wc.matches.filter((m) => m.status === 'pending' && m.teamA && m.teamB).length}</p>
                   <p className="text-[10px] text-pitch-text-secondary mt-0.5">Remaining</p>
                 </div>
                 <div>

@@ -1,25 +1,31 @@
 'use client'
 
-import { ArrowLeft, Sparkles, Trophy, Zap } from 'lucide-react'
+import { ArrowLeft, Sparkles, Trophy, Zap, AlertTriangle } from 'lucide-react'
 import Link from 'next/link'
 import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
 import type { Tournament, Match } from '@/types/tournament'
 
 export default function AssistantPage() {
+  const [tournaments, setTournaments] = useState<Tournament[]>([])
   const [tournament, setTournament] = useState<Tournament | null>(null)
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null)
   const [output, setOutput] = useState('')
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
+  const [aiConfigured, setAiConfigured] = useState(true)
 
   const load = useCallback(async () => {
     try {
       const res = await fetch('/api/tournament')
       const data = await res.json()
-      const wc = data.tournaments?.find((t: Tournament) => t.id === 'wc2026r16')
-      setTournament(wc || null)
+      const all = data.tournaments || []
+      setTournaments(all)
+      if (all.length > 0) {
+        const firstActive = all.find((t: Tournament) => t.status !== 'completed') || all[0]
+        setTournament(firstActive)
+      }
     } finally {
       setLoading(false)
     }
@@ -34,8 +40,8 @@ export default function AssistantPage() {
     setOutput('')
 
     const context = type === 'recap'
-      ? `${selectedMatch.teamA} ${selectedMatch.scoreA} - ${selectedMatch.scoreB} ${selectedMatch.teamB} in the World Cup 2026 ${selectedMatch.round === 'r16' ? 'Round of 16' : selectedMatch.round === 'quarter' ? 'Quarter-Final' : selectedMatch.round === 'semi' ? 'Semi-Final' : 'Final'}. Winner: ${selectedMatch.winner || 'TBD'}.`
-      : `${selectedMatch.teamA} vs ${selectedMatch.teamB} in the World Cup 2026 ${selectedMatch.round === 'r16' ? 'Round of 16' : selectedMatch.round === 'quarter' ? 'Quarter-Final' : selectedMatch.round === 'semi' ? 'Semi-Final' : 'Final'}.`
+      ? `${selectedMatch.teamA} ${selectedMatch.scoreA} - ${selectedMatch.scoreB} ${selectedMatch.teamB} in the ${tournament?.name || ''} ${selectedMatch.round === 'r16' ? 'Round of 16' : selectedMatch.round === 'quarter' ? 'Quarter-Final' : selectedMatch.round === 'semi' ? 'Semi-Final' : 'Final'}. Winner: ${selectedMatch.winner || 'TBD'}.`
+      : `${selectedMatch.teamA} vs ${selectedMatch.teamB} in the ${tournament?.name || ''} ${selectedMatch.round === 'r16' ? 'Round of 16' : selectedMatch.round === 'quarter' ? 'Quarter-Final' : selectedMatch.round === 'semi' ? 'Semi-Final' : 'Final'}.`
 
     try {
       const res = await fetch('/api/ai', {
@@ -43,9 +49,31 @@ export default function AssistantPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type, matchContext: context }),
       })
-      const data = await res.json()
-      if (data.error) throw new Error(data.error)
-      setOutput(data.text)
+
+      if (res.status === 503) {
+        setAiConfigured(false)
+        setError('AI is not configured (set DGRID_API_KEY in .env.local)')
+        return
+      }
+
+      const contentType = res.headers.get('content-type') || ''
+      if (contentType.includes('text/plain')) {
+        const reader = res.body?.getReader()
+        if (!reader) throw new Error('No response body')
+        const decoder = new TextDecoder()
+        let result = ''
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          const chunk = decoder.decode(value, { stream: true })
+          result += chunk
+          setOutput(result)
+        }
+      } else {
+        const data = await res.json()
+        if (data.error) throw new Error(data.error)
+        setOutput(data.text)
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to generate')
       toast.error(err.message)
@@ -62,13 +90,29 @@ export default function AssistantPage() {
     )
   }
 
+  if (tournaments.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50dvh] gap-3">
+        <p className="text-pitch-text-secondary">No tournaments available</p>
+        <Link href="/tournament/create" className="text-sm text-pitch-primary">Create one</Link>
+      </div>
+    )
+  }
+
   if (!tournament) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[50dvh] gap-3">
-        <p className="text-pitch-text-secondary">No WC 2026 data available</p>
+        <p className="text-pitch-text-secondary">No tournament data</p>
         <Link href="/" className="text-sm text-pitch-primary">Home</Link>
       </div>
     )
+  }
+
+  const roundLabel = (m: Match): string => {
+    if (m.round === 'r16') return 'R16'
+    if (m.round === 'quarter') return 'QF'
+    if (m.round === 'semi') return 'SF'
+    return 'Final'
   }
 
   const completed = tournament.matches.filter((m) => m.status === 'completed' && m.teamA && m.teamB)
@@ -91,6 +135,40 @@ export default function AssistantPage() {
             <Sparkles className="w-7 h-7 text-pitch-primary" />
           </div>
         </div>
+
+        {tournaments.length > 1 && (
+          <div>
+            <p className="text-[10px] font-semibold text-pitch-text-secondary uppercase tracking-wide block mb-2">Tournament</p>
+            <div className="space-y-1.5">
+              {tournaments.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => { setTournament(t); setSelectedMatch(null); setOutput(''); setError('') }}
+                  className={`w-full text-left p-3 rounded-xl border transition-colors ${
+                    tournament.id === t.id
+                      ? 'bg-pitch-elevated border-pitch-primary/40'
+                      : 'bg-pitch-surface hairline'
+                  }`}
+                >
+                  <p className="text-sm font-semibold text-pitch-text">{t.name}</p>
+                  <p className="text-[10px] text-pitch-text-tertiary mt-0.5">{t.teams.length} teams</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!aiConfigured && (
+          <div className="p-4 rounded-xl bg-pitch-accent/10 border border-pitch-accent/20 flex items-start gap-3">
+            <AlertTriangle className="w-4 h-4 text-pitch-accent shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-pitch-accent">AI not configured</p>
+              <p className="text-xs text-pitch-text-secondary mt-0.5">
+                Add <code className="text-pitch-accent/80">DGRID_API_KEY</code> to your .env.local file to enable match intelligence.
+              </p>
+            </div>
+          </div>
+        )}
 
         <div>
           <p className="text-[10px] font-semibold text-pitch-text-secondary uppercase tracking-wide mb-2">
@@ -115,9 +193,7 @@ export default function AssistantPage() {
                       <span className="text-xs text-pitch-text">
                         {m.teamA} {m.scoreA}-{m.scoreB} {m.teamB}
                       </span>
-                      <span className="text-[10px] text-pitch-text-tertiary">
-                        {m.round === 'r16' ? 'R16' : m.round === 'quarter' ? 'QF' : m.round === 'semi' ? 'SF' : 'Final'}
-                      </span>
+                      <span className="text-[10px] text-pitch-text-tertiary">{roundLabel(m)}</span>
                     </div>
                   </button>
                 ))}
@@ -144,7 +220,7 @@ export default function AssistantPage() {
                       <span className={`text-[10px] ${
                         selectedMatch?.id === m.id ? 'text-pitch-primary' : 'text-pitch-text-tertiary'
                       }`}>
-                        {m.round === 'r16' ? 'R16' : m.round === 'quarter' ? 'QF' : m.round === 'semi' ? 'SF' : 'Final'}
+                        {roundLabel(m)}
                       </span>
                     </div>
                   </button>
@@ -159,7 +235,7 @@ export default function AssistantPage() {
             {selectedMatch.status === 'completed' && (
               <button
                 onClick={() => generate('recap')}
-                disabled={generating}
+                disabled={generating || !aiConfigured}
                 className="w-full flex items-center gap-3 p-4 rounded-xl bg-pitch-surface border hairline hover:border-pitch-primary/30 transition-colors disabled:opacity-50"
               >
                 <Trophy className="w-5 h-5 text-pitch-accent shrink-0" />
@@ -175,7 +251,7 @@ export default function AssistantPage() {
             {selectedMatch.status === 'pending' && (
               <button
                 onClick={() => generate('pick')}
-                disabled={generating}
+                disabled={generating || !aiConfigured}
                 className="w-full flex items-center gap-3 p-4 rounded-xl bg-pitch-surface border hairline hover:border-pitch-primary/30 transition-colors disabled:opacity-50"
               >
                 <Zap className="w-5 h-5 text-sky-400 shrink-0" />
@@ -214,7 +290,7 @@ export default function AssistantPage() {
 
         <div className="pt-4 text-center">
           <p className="text-[10px] text-pitch-text-tertiary">
-            Powered by DGrid AI · openai/gpt-4o-mini · decentralized gateway
+            Powered by DGrid AI · openai/gpt-4o-mini · streaming via decentralized gateway
           </p>
         </div>
       </div>

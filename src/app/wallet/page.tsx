@@ -1,8 +1,8 @@
 'use client'
 
-import { ArrowLeft, Wallet, Copy, Key, Download, ArrowUpRight } from 'lucide-react'
+import { ArrowLeft, WalletIcon, Copy, Key, ArrowUpRight, RefreshCw } from 'lucide-react'
 import Link from 'next/link'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
 import type { WalletState } from '@/types/tournament'
 
@@ -26,17 +26,40 @@ function clearStoredWallet() {
 
 export default function WalletPage() {
   const [wallet, setWallet] = useState<WalletState | null>(null)
-  const [mode, setMode] = useState<'choice' | 'create' | 'import'>('choice')
+  const [mode, setMode] = useState<'choice' | 'create' | 'import' | 'send'>('choice')
   const [importSeed, setImportSeed] = useState('')
   const [loading, setLoading] = useState(false)
   const [showSeed, setShowSeed] = useState(false)
   const [hydrated, setHydrated] = useState(false)
+  const [balance, setBalance] = useState<number | null>(null)
+  const [balanceLoading, setBalanceLoading] = useState(false)
+  const [sendTo, setSendTo] = useState('')
+  const [sendAmount, setSendAmount] = useState('')
+  const [sendTxHash, setSendTxHash] = useState('')
 
   useEffect(() => {
     const stored = loadStoredWallet()
-    if (stored) setWallet(stored)
+    if (stored) {
+      setWallet(stored)
+      fetchBalance(stored.address)
+    }
     setHydrated(true)
   }, [])
+
+  const fetchBalance = async (addr: string) => {
+    setBalanceLoading(true)
+    try {
+      const res = await fetch('/api/wallet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'balance', address: addr }),
+      })
+      const data = await res.json()
+      if (!data.error) setBalance(data.balance)
+    } catch {} finally {
+      setBalanceLoading(false)
+    }
+  }
 
   const handleCreate = async () => {
     setLoading(true)
@@ -49,6 +72,7 @@ export default function WalletPage() {
       const data = await res.json()
       if (data.error) throw new Error(data.error)
       setWallet(data.wallet)
+      setBalance(data.wallet.balance)
       storeWallet(data.wallet)
       setMode('choice')
       toast.success('Wallet created')
@@ -71,10 +95,39 @@ export default function WalletPage() {
       const data = await res.json()
       if (data.error) throw new Error(data.error)
       setWallet(data.wallet)
+      setBalance(data.wallet.balance)
       storeWallet(data.wallet)
       setMode('choice')
       setImportSeed('')
       toast.success('Wallet imported')
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSend = async () => {
+    if (!wallet || !sendTo.trim() || !sendAmount) return
+    setLoading(true)
+    try {
+      const res = await fetch('/api/wallet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'send',
+          seed: wallet.seed,
+          to: sendTo.trim(),
+          amount: parseFloat(sendAmount),
+        }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setSendTxHash(data.txHash)
+      toast.success('Transfer sent', {
+        description: `TX: ${data.txHash.slice(0, 10)}...`,
+      })
+      fetchBalance(wallet.address)
     } catch (err: any) {
       toast.error(err.message)
     } finally {
@@ -90,7 +143,7 @@ export default function WalletPage() {
 
   if (!hydrated) return null
 
-  if (wallet) {
+  if (wallet && mode !== 'send') {
     return (
       <main className="pb-6">
         <header className="sticky top-0 z-40 bg-pitch-bg/95 backdrop-blur border-b hairline">
@@ -99,7 +152,13 @@ export default function WalletPage() {
               <ArrowLeft className="w-5 h-5 text-pitch-text" />
             </Link>
             <h1 className="text-base font-semibold text-pitch-text">Wallet</h1>
-            <div className="w-9" />
+            <button
+              onClick={() => wallet && fetchBalance(wallet.address)}
+              className="p-1.5 rounded-lg hover:bg-pitch-surface/60"
+              title="Refresh balance"
+            >
+              <RefreshCw className={`w-4 h-4 text-pitch-text-secondary ${balanceLoading ? 'animate-spin' : ''}`} />
+            </button>
           </div>
         </header>
 
@@ -107,7 +166,7 @@ export default function WalletPage() {
           <div className="rounded-2xl bg-pitch-surface border hairline p-5">
             <div className="flex items-center gap-2 mb-3">
               <div className="w-10 h-10 rounded-xl bg-pitch-primary/10 flex items-center justify-center">
-                <Wallet className="w-5 h-5 text-pitch-primary" />
+                <WalletIcon className="w-5 h-5 text-pitch-primary" />
               </div>
               <div>
                 <p className="text-xs text-pitch-text-secondary">Self-Custodial</p>
@@ -117,7 +176,9 @@ export default function WalletPage() {
 
             <div className="text-center py-2">
               <p className="text-[10px] text-pitch-text-secondary uppercase tracking-wide mb-1">Balance</p>
-              <p className="text-3xl font-bold text-pitch-text tnum">{wallet.balance} USDt</p>
+              <p className="text-3xl font-bold text-pitch-text tnum">
+                {balanceLoading ? '...' : (balance !== null ? `${balance} USDt` : 'Loading...')}
+              </p>
             </div>
 
             <div className="mt-4 flex items-center gap-2 p-2.5 rounded-xl bg-pitch-elevated">
@@ -145,25 +206,18 @@ export default function WalletPage() {
             )}
           </div>
 
-          <div className="rounded-xl bg-pitch-surface border hairline p-4">
-            <p className="text-[10px] font-semibold text-pitch-text-secondary uppercase tracking-wide mb-3">Recent</p>
-            <div className="space-y-2">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-pitch-success/10 flex items-center justify-center">
-                  <Download className="w-3.5 h-3.5 text-pitch-success" />
-                </div>
-                <div className="flex-1">
-                  <p className="text-xs font-medium text-pitch-text">Sepolia faucet</p>
-                  <p className="text-[10px] text-pitch-text-tertiary">Testnet deposit</p>
-                </div>
-                <span className="text-xs font-semibold text-pitch-success tnum">+100 USDt</span>
-              </div>
+          {sendTxHash && (
+            <div className="rounded-xl bg-pitch-success/10 border border-pitch-success/20 p-4">
+              <p className="text-[10px] font-semibold text-pitch-text-secondary uppercase tracking-wide mb-1">Last Transaction</p>
+              <p className="text-xs font-mono text-pitch-success break-all">
+                {sendTxHash}
+              </p>
             </div>
-          </div>
+          )}
 
           <div className="flex gap-3">
             <button
-              onClick={() => toast.info('Send flow. Use the WDK SDK for real transactions on Sepolia.')}
+              onClick={() => setMode('send')}
               className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-pitch-primary text-black font-semibold text-sm"
             >
               <ArrowUpRight className="w-4 h-4" />
@@ -179,10 +233,73 @@ export default function WalletPage() {
           </div>
 
           <button
-            onClick={() => { setWallet(null); setShowSeed(false); setMode('choice'); clearStoredWallet() }}
+            onClick={() => { setWallet(null); setShowSeed(false); setMode('choice'); setBalance(null); clearStoredWallet() }}
             className="w-full py-2.5 text-xs text-pitch-text-secondary hover:text-pitch-text"
           >
             Disconnect
+          </button>
+        </div>
+      </main>
+    )
+  }
+
+  if (wallet && mode === 'send') {
+    return (
+      <main className="pb-6">
+        <header className="sticky top-0 z-40 bg-pitch-bg/95 backdrop-blur border-b hairline">
+          <div className="px-4 py-2.5 flex items-center gap-3">
+            <button onClick={() => { setMode('choice'); setSendTxHash('') }} className="p-1.5 -ml-1.5 rounded-lg hover:bg-pitch-surface/60">
+              <ArrowLeft className="w-5 h-5 text-pitch-text" />
+            </button>
+            <h1 className="text-base font-semibold text-pitch-text">Send USDt</h1>
+          </div>
+        </header>
+
+        <div className="px-5 pt-4 space-y-4">
+          <div className="rounded-xl bg-pitch-surface border hairline p-4">
+            <p className="text-[10px] text-pitch-text-secondary uppercase tracking-wide mb-1">From</p>
+            <p className="text-xs font-mono text-pitch-text-secondary break-all">{wallet.address}</p>
+            <p className="text-xs text-pitch-text-tertiary mt-1">
+              Balance: {balance !== null ? `${balance} USDt` : 'Loading...'}
+            </p>
+          </div>
+
+          <div>
+            <label className="text-[10px] font-semibold text-pitch-text-secondary uppercase tracking-wide block mb-2">To Address</label>
+            <input
+              type="text"
+              value={sendTo}
+              onChange={(e) => setSendTo(e.target.value)}
+              placeholder="0x..."
+              className="w-full px-4 py-3 rounded-xl bg-pitch-surface border hairline text-sm text-pitch-text font-mono placeholder:text-pitch-text-tertiary focus:outline-none focus:border-pitch-primary/40"
+            />
+          </div>
+
+          <div>
+            <label className="text-[10px] font-semibold text-pitch-text-secondary uppercase tracking-wide block mb-2">Amount (USDt)</label>
+            <input
+              type="number"
+              value={sendAmount}
+              onChange={(e) => setSendAmount(e.target.value)}
+              placeholder="0.00"
+              step="0.01"
+              className="w-full px-4 py-3 rounded-xl bg-pitch-surface border hairline text-sm text-pitch-text tnum focus:outline-none focus:border-pitch-primary/40"
+            />
+          </div>
+
+          <button
+            onClick={handleSend}
+            disabled={loading || !sendTo.trim() || !sendAmount}
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-pitch-primary text-black font-semibold text-sm disabled:opacity-50"
+          >
+            {loading ? 'Sending...' : 'Send USDt'}
+          </button>
+
+          <button
+            onClick={() => { setMode('choice'); setSendTxHash('') }}
+            className="w-full py-2.5 text-xs text-pitch-text-secondary hover:text-pitch-text"
+          >
+            Cancel
           </button>
         </div>
       </main>
@@ -203,7 +320,7 @@ export default function WalletPage() {
       <div className="px-5 pt-4 space-y-4">
         <div className="flex justify-center py-4">
           <div className="w-16 h-16 rounded-2xl bg-pitch-primary/10 flex items-center justify-center">
-            <Wallet className="w-8 h-8 text-pitch-primary" />
+            <WalletIcon className="w-8 h-8 text-pitch-primary" />
           </div>
         </div>
 
