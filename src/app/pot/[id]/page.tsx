@@ -14,8 +14,6 @@ export default function PotPage() {
   const [match, setMatch] = useState<Match | null>(null)
   const [loading, setLoading] = useState(true)
   const [entering, setEntering] = useState(false)
-  const [settling, setSettling] = useState(false)
-  const [showAdmin, setShowAdmin] = useState(false)
 
   const load = useCallback(async () => {
     const [pRes] = await Promise.all([fetch(`/api/pot?id=${id}`)])
@@ -63,29 +61,6 @@ export default function PotPage() {
       toast.error(err.message)
     } finally {
       setEntering(false)
-    }
-  }
-
-  const handleSettle = async (winner: 'teamA' | 'teamB' | 'draw') => {
-    setSettling(true)
-    try {
-      const res = await fetch('/api/pot', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'settle', potId: id, winner }),
-      })
-      const data = await res.json()
-      if (data.error) throw new Error(data.error)
-      setPot(data.pot)
-      if (data.payouts?.length > 0) {
-        toast.success(`${data.payouts.length} winner(s) · ${data.payouts[0]?.amount} USDt each`)
-      } else {
-        toast.success('Pot settled, no winners')
-      }
-    } catch (err: any) {
-      toast.error(err.message)
-    } finally {
-      setSettling(false)
     }
   }
 
@@ -221,41 +196,10 @@ export default function PotPage() {
 
         {pot.status === 'open' && pot.entries.length > 0 && match && (
           <div className="pt-4 border-t hairline">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-[10px] font-semibold text-pitch-text-secondary uppercase tracking-wide">Settle (Admin)</p>
-              <button
-                onClick={() => setShowAdmin(!showAdmin)}
-                className="text-[10px] text-pitch-text-tertiary hover:text-pitch-text"
-              >
-                {showAdmin ? 'Hide' : 'Show'}
-              </button>
-            </div>
-
-            {showAdmin && (
-              <div className="space-y-1.5">
-                <button
-                  onClick={() => handleSettle('teamA')}
-                  disabled={settling}
-                  className="w-full py-2.5 rounded-lg bg-pitch-primary/10 text-pitch-primary text-xs font-semibold hover:bg-pitch-primary/20 transition-colors disabled:opacity-50"
-                >
-                  {match.teamA} wins
-                </button>
-                <button
-                  onClick={() => handleSettle('draw')}
-                  disabled={settling}
-                  className="w-full py-2.5 rounded-lg bg-pitch-surface border hairline text-xs font-semibold text-pitch-text-secondary disabled:opacity-50"
-                >
-                  Draw
-                </button>
-                <button
-                  onClick={() => handleSettle('teamB')}
-                  disabled={settling}
-                  className="w-full py-2.5 rounded-lg bg-pitch-primary/10 text-pitch-primary text-xs font-semibold hover:bg-pitch-primary/20 transition-colors disabled:opacity-50"
-                >
-                  {match.teamB} wins
-                </button>
-              </div>
-            )}
+            <p className="text-[10px] font-semibold text-pitch-text-secondary uppercase tracking-wide mb-1.5">Settlement</p>
+            <p className="text-xs text-pitch-text-tertiary leading-relaxed">
+              This pot settles automatically when the match result is entered in the bracket. No manual action needed.
+            </p>
           </div>
         )}
       </div>

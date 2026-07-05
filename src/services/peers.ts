@@ -22,6 +22,13 @@ function getStore(): any {
     const Corestore = require('corestore')
     _store = new Corestore(STORE_DIR)
   }
+  if (_store.closed) {
+    _cores.clear()
+    _server = null
+    _initialized = false
+    const Corestore = require('corestore')
+    _store = new Corestore(STORE_DIR)
+  }
   return _store
 }
 

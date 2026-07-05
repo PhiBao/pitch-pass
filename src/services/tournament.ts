@@ -169,6 +169,16 @@ export async function updateResult(
   if (scoreA === scoreB) match.winner = match.teamA
   match.status = 'completed'
   advanceBracket(t)
+
+  const resultSide: 'teamA' | 'teamB' | 'draw' =
+    match.winner === match.teamB ? 'teamB' : 'teamA'
+
+  for (const [potId, pot] of pots) {
+    if (pot.tournamentId === tournamentId && pot.matchId === matchId && pot.status === 'open') {
+      settlePot(potId, resultSide)
+    }
+  }
+
   await persistTournament(t)
   return t
 }

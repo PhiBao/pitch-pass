@@ -31,12 +31,12 @@ Next.js 16 (React 19 + TypeScript + Tailwind v4)
 │   ├── /tournament/create         Create knockout tournaments, show pear:// + share links
 │   ├── /tournament/[id]           Bracket (R16 → QF → SF → Final), score entry, settle, P2P pill
 │   ├── /pot/create                Create prediction pots on matches
-│   ├── /pot/[id]                  Enter picks (wallet-linked), settle, payout distribution
+│   ├── /pot/[id]                  Enter picks (wallet-linked), auto-settle from bracket result
 │   ├── /assistant                 DGrid AI: streaming recaps and predictions, any tournament
 │   └── /wallet                    Self-custodial wallet (WDK seed, live Sepolia balance, real send)
 ├── API Routes
 │   ├── /api/tournament            Hypercore-backed CRUD, bracket, payouts, peer info
-│   ├── /api/pot                   Pot create/enter/settle
+│   ├── /api/pot                   Pot create/enter (auto-settles on match result)
 │   ├── /api/ai                    DGrid AI streaming completions (SSE)
 │   └── /api/wallet                Wallet create/import/balance/send (WDK + ethers + Sepolia)
 └── Services
@@ -64,7 +64,7 @@ Open [http://localhost:3000](http://localhost:3000).
 | Variable | Required | Description |
 |---|---|---|
 | `DGRID_API_KEY` | No | DGrid AI API key for match analysis. AI shows a configuration notice if not set. |
-| `SEPOLIA_RPC_URL` | No | Sepolia RPC endpoint. Defaults to `https://rpc.sepolia.org`. |
+| `SEPOLIA_RPC_URL` | No | Sepolia RPC endpoint. Defaults to `https://ethereum-sepolia-rpc.publicnode.com`. |
 
 ---
 
@@ -84,7 +84,7 @@ Open [http://localhost:3000](http://localhost:3000).
 - Players pick Team A, Draw, or Team B with a USDt stake
 - Entries linked to the connected self-custodial wallet address
 - Transparent pool: entries, total pool, potential payout per winner
-- Settle with one tap: winners auto-calculated
+- Auto-settle when bracket result is entered — pot outcome always matches match result
 
 ### AI Assistant
 - Select any match from any tournament
@@ -97,8 +97,9 @@ Open [http://localhost:3000](http://localhost:3000).
 - Create new wallet — BIP39 seed generation via WDK
 - Real EVM address derived from seed (`m/44'/60'/0'/0/0`) via ethers
 - Import existing wallet from seed phrase
-- Live Sepolia USDt balance (on-chain, from USDT contract)
-- Real Sepolia USDt send with transaction hash display
+- Live Sepolia USDt balance (on-chain, from USDT contract at `0xd077a4...` on Sepolia)
+- Balance queries use the public address only (seed never leaves the client for read ops)
+- Real Sepolia USDt send with transaction hash display (seed used only for signing)
 - Persistent across sessions (localStorage)
 
 ### Design
